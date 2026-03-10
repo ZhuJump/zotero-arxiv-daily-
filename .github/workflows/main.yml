@@ -39,7 +39,45 @@ jobs:
         run: |
           if [ -f "src/zotero_arxiv_daily/main.py" ]; then
             mkdir -p config
-            printf "%b\n" "${CUSTOM_CONFIG:-}" > config/custom.yaml
+            if [ -n "${CUSTOM_CONFIG:-}" ]; then
+              printf "%b\n" "$CUSTOM_CONFIG" > config/custom.yaml
+            else
+              ARXIV_CATS=$(echo "${ARXIV_QUERY:-cs.AI}" | tr '+' ',' | sed -E 's/,+/,/g; s/^,//; s/,$//; s/[^,]+/"&"/g')
+              if [ "${SEND_EMPTY:-}" = "1" ] || [ "${SEND_EMPTY:-}" = "true" ]; then
+                SEND_EMPTY_VAL="true"
+              else
+                SEND_EMPTY_VAL="false"
+              fi
+              {
+                printf '%s\n' 'zotero:'
+                printf '%s\n' '  user_id: ${oc.env:ZOTERO_ID}'
+                printf '%s\n' '  api_key: ${oc.env:ZOTERO_KEY}'
+                printf '%s\n' '  include_path: null'
+                printf '%s\n' 'email:'
+                printf '%s\n' '  sender: ${oc.env:SENDER}'
+                printf '%s\n' '  receiver: ${oc.env:RECEIVER}'
+                printf '  smtp_server: %s\n' "${SMTP_SERVER:-smtp.qq.com}"
+                printf '  smtp_port: %s\n' "${SMTP_PORT:-465}"
+                printf '%s\n' '  sender_password: ${oc.env:SENDER_PASSWORD}'
+                printf '%s\n' 'llm:'
+                printf '%s\n' '  api:'
+                printf '%s\n' '    key: ${oc.env:OPENAI_API_KEY}'
+                printf '%s\n' '    base_url: ${oc.env:OPENAI_API_BASE}'
+                printf '%s\n' '  generation_kwargs:'
+                printf '    model: %s\n' "${MODEL_NAME:-gpt-4o-mini}"
+                printf '  language: %s\n' "${LANGUAGE:-English}"
+                printf '%s\n' 'source:'
+                printf '%s\n' '  arxiv:'
+                printf '    category: [%s]\n' "$ARXIV_CATS"
+                printf '%s\n' 'executor:'
+                printf '%s\n' '  debug: ${oc.env:DEBUG,null}'
+                printf '%s\n' "  source: ['arxiv']"
+                printf '  max_paper_num: %s\n' "${MAX_PAPER_NUM:-100}"
+                printf '  send_empty: %s\n' "$SEND_EMPTY_VAL"
+              } > config/custom.yaml
+            fi
+            echo "Generated config/custom.yaml:"
+            cat config/custom.yaml
             uv run src/zotero_arxiv_daily/main.py
           else
             uv run main.py
