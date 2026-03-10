@@ -13,9 +13,7 @@ jobs:
           ref: ${{ vars.REF }}
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: '0.5.4'
+        uses: astral-sh/setup-uv@v5
 
       - name: Run script
         env:
@@ -35,5 +33,13 @@ jobs:
           OPENAI_API_BASE: ${{ secrets.OPENAI_API_BASE }}
           MODEL_NAME: ${{ secrets.MODEL_NAME }}
           LANGUAGE: ${{ vars.LANGUAGE }}
+          CUSTOM_CONFIG: ${{ vars.CUSTOM_CONFIG }}
         run: |
-          uv run main.py --debug
+          if [ -f "src/zotero_arxiv_daily/main.py" ]; then
+            export DEBUG=true
+            mkdir -p config
+            printf "%b\n" "${CUSTOM_CONFIG:-}" > config/custom.yaml
+            uv run src/zotero_arxiv_daily/main.py
+          else
+            uv run main.py --debug
+          fi
