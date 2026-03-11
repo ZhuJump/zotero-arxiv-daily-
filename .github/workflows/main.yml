@@ -70,7 +70,7 @@ jobs:
                 printf '%s\n' '  arxiv:'
                 printf '    category: [%s]\n' "$ARXIV_CATS"
                 printf '%s\n' 'executor:'
-                printf '%s\n' '  debug: ${oc.env:DEBUG,null}'
+                printf '%s\n' '  debug: false'
                 printf '%s\n' "  source: ['arxiv']"
                 printf '  max_paper_num: %s\n' "${MAX_PAPER_NUM:-100}"
                 printf '  send_empty: %s\n' "$SEND_EMPTY_VAL"
