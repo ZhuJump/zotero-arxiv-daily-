@@ -2,6 +2,7 @@ import arxiv
 import argparse
 import os
 import sys
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 load_dotenv(override=True)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -74,6 +75,85 @@ def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
     return papers
 
 
+# Default research-direction keywords to include in every search run.
+# Each entry is an exact phrase that will be matched against title and abstract.
+DEFAULT_SEARCH_KEYWORDS = ",".join([
+    "LLM-based Agents",
+    "Multi-Agent Systems for Design",
+    "Autonomous Engineering Design",
+    "Generative Design Agents",
+    "LLM for Mechanical Optimization",
+    "Agentic Workflows in CAD",
+    "SysML v2",
+    "KerML",
+    "Model-Based Systems Engineering",
+    "System Architecture Modeling",
+    "Digital Thread in Aerospace",
+    "Executable Models",
+    "Hypersonic Aircraft Actuation",
+    "Electromechanical Actuators",
+    "Thermal Management System",
+    "Power-by-Wire",
+    "Thermal-aware Control",
+    "Integrated Thermal-Actuation Modeling",
+    "Engineering Knowledge Graph",
+    "Knowledge-Informed Design",
+    "Neo4j in Engineering",
+    "RAG for Technical Docs",
+    "Domain-specific Ontology",
+    "Knowledge-driven Optimization",
+])
+
+
+def get_arxiv_paper_by_keywords(keywords_str: str, debug: bool = False) -> list[ArxivPaper]:
+    """Search recent arxiv papers that match any of the provided keyword phrases.
+
+    Args:
+        keywords_str: Comma-separated list of keyword phrases to search for.
+        debug: When True, limit the search to a small number of results for testing.
+
+    Returns:
+        A deduplicated list of ArxivPaper objects submitted within the last 3 days
+        (to cover weekends/holidays) that match at least one keyword phrase.
+    """
+    keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
+    if not keywords:
+        return []
+
+    client = arxiv.Client(num_retries=10, delay_seconds=10)
+
+    # Build an OR query using exact phrase search across all fields.
+    keyword_queries = [f'all:"{k}"' for k in keywords]
+    query = ' OR '.join(keyword_queries)
+
+    max_results = 10 if debug else 300
+    search = arxiv.Search(
+        query=query,
+        sort_by=arxiv.SortCriterion.SubmittedDate,
+        max_results=max_results,
+    )
+
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=3)
+
+    seen_ids: set[str] = set()
+    papers: list[ArxivPaper] = []
+
+    bar = tqdm(desc="Retrieving keyword-matched Arxiv papers")
+    for result in client.results(search):
+        # arxiv.Result.published is timezone-aware; stop once papers are too old.
+        if result.published < cutoff_dt:
+            break
+        paper = ArxivPaper(result)
+        arxiv_id = paper.arxiv_id
+        if arxiv_id not in seen_ids:
+            seen_ids.add(arxiv_id)
+            papers.append(paper)
+        bar.update(1)
+    bar.close()
+
+    logger.info(f"Found {len(papers)} keyword-matched papers from the last 3 days.")
+    return papers
+
 
 parser = argparse.ArgumentParser(description='Recommender system for academic papers')
 
@@ -141,6 +221,16 @@ if __name__ == '__main__':
         help="Language of TLDR",
         default="English",
     )
+    add_argument(
+        "--search_keywords",
+        type=str,
+        help=(
+            "Comma-separated list of keyword phrases to search for on arxiv in addition "
+            "to the category-based RSS feed. Each phrase is matched as an exact string "
+            "against title and abstract. Set to an empty string to disable keyword search."
+        ),
+        default=DEFAULT_SEARCH_KEYWORDS,
+    )
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     args = parser.parse_args()
     assert (
@@ -163,6 +253,18 @@ if __name__ == '__main__':
         logger.info(f"Remaining {len(corpus)} papers after filtering.")
     logger.info("Retrieving Arxiv papers...")
     papers = get_arxiv_paper(args.arxiv_query, args.debug)
+    if args.search_keywords:
+        logger.info("Retrieving keyword-matched Arxiv papers...")
+        kw_papers = get_arxiv_paper_by_keywords(args.search_keywords, args.debug)
+        if kw_papers:
+            existing_ids = {p.arxiv_id for p in papers}
+            added = 0
+            for p in kw_papers:
+                if p.arxiv_id not in existing_ids:
+                    papers.append(p)
+                    existing_ids.add(p.arxiv_id)
+                    added += 1
+            logger.info(f"Added {added} new keyword-matched papers (total: {len(papers)}).")
     if len(papers) == 0:
         logger.info("No new papers found. Yesterday maybe a holiday and no one submit their work :). If this is not the case, please check the ARXIV_QUERY.")
         if not args.send_empty:
